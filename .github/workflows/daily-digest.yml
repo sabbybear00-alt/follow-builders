@@ -1,0 +1,63 @@
+name: AI Builders Digest
+
+on:
+  schedule:
+    - cron: '0 0 * * *'
+    - cron: '0 1 * * 0'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: '日报还是周报'
+        required: false
+        default: 'daily'
+        type: choice
+        options:
+          - daily
+          - weekly
+
+jobs:
+  digest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: cd scripts && npm install
+
+      - name: Determine mode
+        id: mode
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "MODE=${{ inputs.mode }}" >> $GITHUB_OUTPUT
+          elif [ "$(date +%u)" = "7" ]; then
+            echo "MODE=weekly" >> $GITHUB_OUTPUT
+          else
+            echo "MODE=daily" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Generate Digest
+        id: digest
+        env:
+          DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
+          FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
+        run: |
+          cd scripts
+          if [ "${{ steps.mode.outputs.MODE }}" = "weekly" ]; then
+            node gha-digest.js --weekly
+          else
+            node gha-digest.js
+          fi
+
+      - name: Upload Digest Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: digest-${{ steps.mode.outputs.MODE }}-${{ github.run_id }}
+          path: scripts/output/*.md
+          retention-days: 90
