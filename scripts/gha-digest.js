@@ -10,6 +10,7 @@ const OUTPUT_DIR = join(__dirname, 'output');
 
 const TOKEN = process.env.DEEPSEEK_API_KEY;
 const WEBHOOK = process.env.FEISHU_WEBHOOK_URL;
+const WEBHOOK_GROUP = process.env.FEISHU_WEBHOOK_URL_GROUP;
 const BASE_URL = 'https://api.deepseek.com/anthropic';
 const MODEL = 'deepseek-v4-pro';
 const isWeekly = process.argv.includes('--weekly');
@@ -77,11 +78,11 @@ async function saveMd(digest){
   return fp;
 }
 
-async function sendFeishu(digest){
-  if(!WEBHOOK){log('⚠️','未配置 webhook');return false;}
+async function sendFeishu(digest, url){
+  if(!url){log('⚠️','未配置 webhook');return false;}
   const text=digest.length>28000?digest.slice(0,28000)+'\n\n...(过长已截断)':digest;
   const label=isWeekly?`📊 AI Builders Weekly — ${today()}`:`🤖 AI Builders Digest — ${today()}`;
-  const res=await fetch(WEBHOOK,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg_type:'interactive',card:{header:{title:{tag:'plain_text',content:label},template:isWeekly?'purple':'blue'},elements:[{tag:'markdown',content:text}]}})});
+  const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({msg_type:'interactive',card:{header:{title:{tag:'plain_text',content:label},template:isWeekly?'purple':'blue'},elements:[{tag:'markdown',content:text}]}})});
   if(!res.ok) throw new Error(`Webhook ${res.status}: ${(await res.text()).slice(0,300)}`);
   return true;
 }
@@ -95,11 +96,14 @@ async function main(){
   const data=await loadData();
   const s=data.stats||{};
   log('📊',`加载: ${s.totalTweets||0}推文 ${s.blogPosts||0}博客 ${s.podcastEpisodes||0}播客`);
-  if(!s.totalTweets&&!s.blogPosts&&!s.podcastEpisodes){log('😴','无内容');const ed=`# AI Builders ${isWeekly?'Weekly':'Digest'} — ${label}\n\n今天没有新的 AI Builder 内容。`;await saveMd(ed);if(WEBHOOK)await sendFeishu(ed);return;}
+  if(!s.totalTweets&&!s.blogPosts&&!s.podcastEpisodes){log('😴','无内容');const ed=`# AI Builders ${isWeekly?'Weekly':'Digest'} — ${label}\n\n今天没有新的 AI Builder 内容。`;await saveMd(ed);if(WEBHOOK)await sendFeishu(ed,WEBHOOK);if(WEBHOOK_GROUP)await sendFeishu(ed,WEBHOOK_GROUP);return;}
   let digest;
   try{digest=await remix(data);log('✅',`摘要完成 (${digest.length}字)`);}catch(e){log('❌',`DeepSeek 失败: ${e.message}`);digest=`# AI Builders ${isWeekly?'Weekly':'Digest'} — ${label}\n\n> ⚠️ 摘要生成失败: ${e.message}\n\n推文${s.totalTweets||0}|博客${s.blogPosts||0}|播客${s.podcastEpisodes||0}`;}
   const mdPath=await saveMd(digest);
-  try{if(WEBHOOK){await sendFeishu(digest);log('✅','飞书推送成功');}}catch(e){log('❌',`飞书推送失败: ${e.message}`);}
+  try{
+    if(WEBHOOK){await sendFeishu(digest,WEBHOOK);log('✅','飞书个人推送成功');}
+    if(WEBHOOK_GROUP){await sendFeishu(digest,WEBHOOK_GROUP);log('✅','飞书群推送成功');}
+  }catch(e){log('❌',`飞书推送失败: ${e.message}`);}
   console.log(`\n✨ 完成! ${mdPath}`);
 }
 main().catch(e=>{console.error('Fatal:',e);process.exit(1);});
